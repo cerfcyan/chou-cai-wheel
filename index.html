@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>今天吃什么 · 抽菜转盘</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+:root{
+  --ink:#5a4f44;
+  --line:#e8e0d4;
+  --brand:#a84b38;
+  --bg:#fffdfa;
+}
+body{
+  background:var(--bg);
+  font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  color:var(--ink);
+  min-height:100vh;
+  display:flex;
+  justify-content:center;
+  padding:22px 16px 40px;
+}
+.app{width:100%;max-width:560px;display:flex;flex-direction:column;align-items:center;gap:14px;}
+header{text-align:center;}
+h1{font-size:21px;letter-spacing:1px;font-weight:600;}
+.sub{font-size:12px;color:#a1927f;margin-top:6px;}
+
+.tabs{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;}
+.tab{
+  padding:7px 15px;border-radius:999px;border:1px solid var(--line);
+  background:#fff;color:#8a7b68;font-size:13px;cursor:pointer;transition:.15s;
+  font-family:inherit;
+}
+.tab.on{background:var(--brand);border-color:var(--brand);color:#fff;}
+
+.stage{position:relative;width:100%;display:flex;justify-content:center;margin-top:4px;}
+.wheel-wrap{position:relative;width:min(88vw,440px);height:min(88vw,440px);}
+canvas{width:100%;height:100%;border-radius:50%;display:block;}
+.pointer{
+  position:absolute;left:50%;top:-10px;transform:translateX(-50%);
+  width:0;height:0;border-left:11px solid transparent;border-right:11px solid transparent;
+  border-top:26px solid var(--brand);z-index:5;
+  filter:drop-shadow(0 2px 2px rgba(0,0,0,.12));
+}
+.hub{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:23%;aspect-ratio:1;border-radius:50%;
+  background:#fff;border:none;cursor:pointer;
+  color:var(--brand);font-size:clamp(20px,6vw,30px);font-weight:700;
+  font-family:inherit;
+  box-shadow:0 2px 10px rgba(0,0,0,.10), 0 0 0 5px #fdfaf5;
+  display:flex;align-items:center;justify-content:center;
+  transition:transform .12s;
+}
+.hub:active{transform:translate(-50%,-50%) scale(.94);}
+.hub[disabled]{opacity:.6;cursor:default;}
+
+.result{
+  width:100%;min-height:64px;border:1px solid var(--line);border-radius:14px;
+  background:#faf7f2;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:4px;padding:10px 14px;text-align:center;
+}
+.result .cap{font-size:11px;color:#b0a390;letter-spacing:2px;}
+.result .name{font-size:24px;font-weight:600;color:var(--brand);line-height:1.3;word-break:break-all;}
+.result .name.empty{font-size:14px;color:#a1927f;font-weight:400;}
+
+.row{display:flex;gap:10px;}
+.btn{
+  padding:12px 30px;border-radius:12px;border:none;background:var(--brand);color:#fff;
+  font-size:15px;font-family:inherit;cursor:pointer;transition:.15s;
+}
+.btn:active{opacity:.86;}
+.btn.ghost{background:#fff;color:var(--brand);border:1px solid #e3d6c9;}
+.btn[disabled]{opacity:.5;cursor:default;}
+
+.recent{width:100%;border-top:1px dashed var(--line);padding-top:12px;}
+.recent h2{font-size:12px;color:#b0a390;font-weight:400;letter-spacing:2px;margin-bottom:8px;text-align:center;}
+.recent ul{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;list-style:none;}
+.recent li{
+  font-size:12px;color:#8a7b68;background:#fff;border:1px solid var(--line);
+  border-radius:999px;padding:5px 12px;
+}
+.recent .none{font-size:12px;color:#c3b7a6;text-align:center;}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>今天吃什么</h1>
+    <p class="sub" id="subline"></p>
+  </header>
+
+  <div class="tabs" id="tabs"></div>
+
+  <div class="stage">
+    <div class="wheel-wrap">
+      <div class="pointer"></div>
+      <canvas id="wheel"></canvas>
+      <button class="hub" id="hub">转</button>
+    </div>
+  </div>
+
+  <div class="result">
+    <span class="cap" id="cap">按「转」开始</span>
+    <span class="name empty" id="name">点中间按钮抽一道菜</span>
+  </div>
+
+  <div class="row">
+    <button class="btn" id="spinBtn">开始抽菜</button>
+    <button class="btn ghost" id="resetBtn">复位</button>
+  </div>
+
+  <div class="recent">
+    <h2>最近抽到</h2>
+    <div id="recentBox"><p class="none">还没有记录</p></div>
+  </div>
+</div>
+
+<script>
+// ===== 菜品库（与家庭菜谱应用同步：106 道） =====
+var DISHES = [
+  {n:"白灼虾",c:"荤菜"},{n:"番茄牛腩",c:"荤菜"},{n:"荷兰豆炒腊肠",c:"荤菜"},{n:"红烧大排",c:"荤菜"},
+  {n:"红烧带鱼",c:"荤菜"},{n:"红烧鸡翅",c:"荤菜"},{n:"红烧鲫鱼",c:"荤菜"},{n:"红烧排骨",c:"荤菜"},
+  {n:"红烧肉",c:"荤菜"},{n:"滑蛋牛肉",c:"荤菜"},{n:"黄豆炖猪蹄",c:"荤菜"},{n:"回锅肉（花菜或卷心菜）",c:"荤菜"},
+  {n:"家常豆腐",c:"荤菜"},{n:"可乐鸡翅",c:"荤菜"},{n:"可乐鸡翅",c:"荤菜"},{n:"辣椒炒肉",c:"荤菜"},
+  {n:"腊肉炒芸豆",c:"荤菜"},{n:"麻婆豆腐",c:"荤菜"},{n:"蚂蚁上树",c:"荤菜"},{n:"面筋塞肉",c:"荤菜"},
+  {n:"木须肉",c:"荤菜"},{n:"清炒虾仁",c:"荤菜"},{n:"青椒肉丝炒毛豆",c:"荤菜"},{n:"清蒸鲈鱼",c:"荤菜"},
+  {n:"肉末豆腐",c:"荤菜"},{n:"肉沫炖蛋",c:"荤菜"},{n:"蒜苔炒肉丝",c:"荤菜"},{n:"糖醋里脊",c:"荤菜"},
+  {n:"糖醋排骨",c:"荤菜"},{n:"土豆炖牛腩",c:"荤菜"},{n:"土豆炖牛腩",c:"荤菜"},{n:"土豆咖喱鸡",c:"荤菜"},
+  {n:"土豆烧鸡块",c:"荤菜"},{n:"莴笋炒肉片",c:"荤菜"},{n:"虾仁炒鸡蛋",c:"荤菜"},{n:"香菇滑鸡",c:"荤菜"},
+  {n:"油爆虾",c:"荤菜"},{n:"鱼香茄子",c:"荤菜"},{n:"鱼香肉丝",c:"荤菜"},
+
+  {n:"凉拌海带丝",c:"凉菜"},{n:"凉拌黄瓜",c:"凉菜"},{n:"凉拌木耳",c:"凉菜"},
+  {n:"凉拌莴笋丝",c:"凉菜"},{n:"酸辣菜",c:"凉菜"},{n:"香干马兰头",c:"凉菜"},
+
+  {n:"白菜炒粉丝",c:"素菜"},{n:"白灼菜心",c:"素菜"},{n:"菠菜",c:"素菜"},{n:"葱油拌面",c:"素菜"},
+  {n:"醋溜白菜",c:"素菜"},{n:"地三鲜",c:"素菜"},{n:"炖蛋",c:"素菜"},{n:"番茄炒蛋",c:"素菜"},
+  {n:"番茄炒卷心菜",c:"素菜"},{n:"番茄豆腐",c:"素菜"},{n:"蚝油生菜",c:"素菜"},{n:"荷塘小炒",c:"素菜"},
+  {n:"红烧冬瓜",c:"素菜"},{n:"红烧荷包蛋",c:"素菜"},{n:"红烧萝卜",c:"素菜"},{n:"红烧茄子",c:"素菜"},
+  {n:"红烧素鸡",c:"素菜"},{n:"茭白炒毛豆",c:"素菜"},{n:"韭菜炒蛋",c:"素菜"},{n:"韭菜炒豆芽",c:"素菜"},
+  {n:"卷心菜钱油豆腐",c:"素菜"},{n:"木耳炒山药",c:"素菜"},{n:"茄子",c:"素菜"},{n:"芹菜炒香干",c:"素菜"},
+  {n:"清炒豆苗",c:"素菜"},{n:"清炒藕片",c:"素菜"},{n:"清炒四季豆",c:"素菜"},{n:"青椒土豆丝",c:"素菜"},
+  {n:"清蒸南瓜",c:"素菜"},{n:"上汤娃娃菜",c:"素菜"},{n:"手撕包菜",c:"素菜"},{n:"丝瓜炒蛋",c:"素菜"},
+  {n:"丝瓜炒毛豆",c:"素菜"},{n:"四喜烤麸",c:"素菜"},{n:"蒜蓉菠菜",c:"素菜"},{n:"蒜蓉金针菇",c:"素菜"},
+  {n:"蒜蓉空心菜",c:"素菜"},{n:"蒜蓉西兰花",c:"素菜"},{n:"茼蒿菜",c:"素菜"},{n:"土豆刀豆",c:"素菜"},
+  {n:"西红柿炒蛋",c:"素菜"},{n:"咸菜豆腐",c:"素菜"},{n:"香菇炒青菜",c:"素菜"},{n:"香煎豆腐",c:"素菜"},
+  {n:"洋葱炒蛋",c:"素菜"},{n:"油焖茭白",c:"素菜"},
+
+  {n:"冬瓜排骨汤",c:"汤"},{n:"冬瓜排骨汤",c:"汤"},{n:"冬瓜丸子汤",c:"汤"},{n:"番茄蛋汤",c:"汤"},
+  {n:"蛤蜊豆腐汤",c:"汤"},{n:"海带排骨汤",c:"汤"},{n:"鸡毛菜蘑菇汤",c:"汤"},{n:"菌菇豆腐汤",c:"汤"},
+  {n:"萝卜丝荷包蛋汤",c:"汤"},{n:"罗宋汤",c:"汤"},{n:"丝瓜蛋汤",c:"汤"},{n:"酸辣汤",c:"汤"},
+  {n:"玉米排骨汤",c:"汤"},{n:"榨菜蛋汤",c:"汤"},{n:"紫菜蛋花汤",c:"汤"}
+];
+
+var CATS = ["全部","荤菜","素菜","凉菜","汤"];
+var C1 = "#f4eee4", C2 = "#efe7da", C3 = "#f7f2ea";
+var BRAND = "#a84b38";
+
+var canvas = document.getElementById("wheel");
+var ctx = canvas.getContext("2d");
+var hub = document.getElementById("hub");
+var spinBtn = document.getElementById("spinBtn");
+var resetBtn = document.getElementById("resetBtn");
+var tabs = document.getElementById("tabs");
+var nameEl = document.getElementById("name");
+var capEl = document.getElementById("cap");
+var subline = document.getElementById("subline");
+var recentBox = document.getElementById("recentBox");
+
+var currentCat = "全部";
+var list = [];          // 当前转盘上的菜品
+var rotation = 0;       // 当前弧度（累计）
+var spinning = false;
+var pickedIndex = -1;   // 中奖扇区，用于高亮
+var size = 440;
+
+// ---------- 数据 ----------
+function rebuildList(){
+  list = currentCat === "全部" ? DISHES.slice() : DISHES.filter(function(d){return d.c === currentCat;});
+  subline.textContent = "共 " + list.length + " 道菜，一道一格";
+  pickedIndex = -1;
+  nameEl.textContent = "点中间按钮抽一道菜";
+  nameEl.className = "name empty";
+  capEl.textContent = "按「转」开始";
+}
+
+// ---------- 画布尺寸 ----------
+function fitCanvas(){
+  var box = canvas.parentElement.getBoundingClientRect();
+  var css = Math.max(240, Math.min(box.width, box.height));
+  var dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(css * dpr);
+  canvas.height = Math.round(css * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  size = css;
+  draw();
+}
+
+// ---------- 绘制转盘 ----------
+function fontSizeFor(n){
+  if (n <= 8) return 17;
+  if (n <= 12) return 15;
+  if (n <= 18) return 13;
+  if (n <= 24) return 12;
+  if (n <= 36) return 10;
+  if (n <= 52) return 9;
+  if (n <= 80) return 8;
+  return 7;
+}
+
+function truncate(text, maxChars){
+  if (text.length <= maxChars) return text;
+  return text.slice(0, Math.max(1, maxChars - 1)) + "…";
+}
+
+function draw(){
+  var n = list.length;
+  var cx = size / 2, cy = size / 2;
+  var R = size / 2 - 3;
+  var hubR = R * 0.23;
+
+  ctx.clearRect(0, 0, size, size);
+  if (n === 0) return;
+
+  var seg = Math.PI * 2 / n;
+  var fs = fontSizeFor(n);
+  var pad = Math.max(6, R * 0.035);
+  var maxChars = Math.floor((R - pad - hubR) / fs);
+
+  for (var i = 0; i < n; i++){
+    var a0 = -Math.PI / 2 + i * seg + rotation;
+    var a1 = a0 + seg;
+
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, R, a0, a1);
+    ctx.fillStyle = (i % 3 === 0) ? C1 : (i % 3 === 1 ? C2 : C3);
+    ctx.fill();
+
+    if (pickedIndex === i){
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, R, a0, a1);
+      ctx.fillStyle = "rgba(168,75,56,0.16)";
+      ctx.fill();
+      ctx.restore();
+    }
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, a0, a1);
+    ctx.strokeStyle = "rgba(255,255,255,0.95)";
+    ctx.lineWidth = n > 60 ? 1 : (n > 24 ? 1.6 : 2.6);
+    ctx.stroke();
+
+    // 菜名：落在本扇区中线上，沿半径方向，不跨格
+    var mid = a0 + seg / 2;
+    var norm = ((mid % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    var flip = norm > Math.PI / 2 && norm < Math.PI * 1.5;
+    var label = truncate(list[i].n, maxChars);
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(flip ? mid + Math.PI : mid);
+    ctx.fillStyle = "#6b5a47";
+    ctx.font = fs + "px system-ui,-apple-system,'PingFang SC',sans-serif";
+    ctx.textBaseline = "middle";
+    if (flip){
+      ctx.textAlign = "left";
+      ctx.fillText(label, -(R - pad), 0);
+    } else {
+      ctx.textAlign = "right";
+      ctx.fillText(label, R - pad, 0);
+    }
+    ctx.restore();
+  }
+
+  // 外圈细描边
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.strokeStyle = "#e6dccd";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // 中心留白
+  ctx.beginPath();
+  ctx.arc(cx, cy, hubR + 3, 0, Math.PI * 2);
+  ctx.fillStyle = "#fdfaf5";
+  ctx.fill();
+}
+</script>
+<script>
+// ---------- 抽奖 ----------
+var recent = [];
+try { recent = JSON.parse(localStorage.getItem("wheelRecent") || "[]"); } catch(e){ recent = []; }
+
+function renderRecent(){
+  if (!recent.length){ recentBox.innerHTML = '<p class="none">还没有记录</p>'; return; }
+  recentBox.innerHTML = "<ul>" + recent.map(function(r){
+    return "<li>" + r + "</li>";
+  }).join("") + "</ul>";
+}
+
+function pushRecent(text){
+  recent.unshift(text);
+  recent = recent.slice(0, 6);
+  try { localStorage.setItem("wheelRecent", JSON.stringify(recent)); } catch(e){}
+  renderRecent();
+}
+
+function easeOutCubic(t){ return 1 - Math.pow(1 - t, 3); }
+
+function spin(){
+  if (spinning || list.length === 0) return;
+  spinning = true;
+  hub.disabled = true;
+  spinBtn.disabled = true;
+  pickedIndex = -1;
+  nameEl.textContent = "转动中…";
+  nameEl.className = "name empty";
+  capEl.textContent = "指针停在哪个，就吃哪个";
+
+  var n = list.length;
+  var seg = Math.PI * 2 / n;
+  var idx = Math.floor(Math.random() * n);
+
+  // 目标：扇区 idx 的中线转到正上方（-90°）指针处
+  var segCenter = idx * seg + seg / 2;           // 从 12 点起顺时针偏移
+  var targetMod = (Math.PI * 2 - segCenter) % (Math.PI * 2);
+  var currentMod = ((rotation % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  var rounds = 6 + Math.floor(Math.random() * 3);
+  var delta = targetMod - currentMod + Math.PI * 2 * rounds;
+
+  var from = rotation;
+  var duration = 4200;
+  var start = null;
+
+  function frame(ts){
+    if (start === null) start = ts;
+    var p = Math.min(1, (ts - start) / duration);
+    rotation = from + delta * easeOutCubic(p);
+    draw();
+    if (p < 1){
+      requestAnimationFrame(frame);
+    } else {
+      rotation = from + delta;
+      pickedIndex = idx;
+      draw();
+      spinning = false;
+      hub.disabled = false;
+      spinBtn.disabled = false;
+      nameEl.textContent = list[idx].n;
+      nameEl.className = "name";
+      capEl.textContent = list[idx].c;
+      pushRecent(list[idx].n);
+    }
+  }
+  requestAnimationFrame(frame);
+}
+
+// ---------- 交互 ----------
+hub.addEventListener("click", spin);
+spinBtn.addEventListener("click", spin);
+resetBtn.addEventListener("click", function(){
+  if (spinning) return;
+  rotation = 0;
+  pickedIndex = -1;
+  draw();
+  nameEl.textContent = "点中间按钮抽一道菜";
+  nameEl.className = "name empty";
+  capEl.textContent = "按「转」开始";
+});
+
+CATS.forEach(function(cat){
+  var b = document.createElement("button");
+  b.className = "tab" + (cat === currentCat ? " on" : "");
+  b.textContent = cat === "全部" ? "全部" : cat;
+  b.addEventListener("click", function(){
+    if (spinning) return;
+    currentCat = cat;
+    Array.prototype.forEach.call(tabs.children, function(x){ x.classList.remove("on"); });
+    b.classList.add("on");
+    rotation = 0;
+    rebuildList();
+    draw();
+  });
+  tabs.appendChild(b);
+});
+
+window.addEventListener("resize", fitCanvas);
+// 兼容旧版 iPhone 地址栏收起
+window.addEventListener("orientationchange", function(){ setTimeout(fitCanvas, 120); });
+
+rebuildList();
+fitCanvas();
+renderRecent();
+</script>
+</body>
+</html>
